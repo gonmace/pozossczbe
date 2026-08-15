@@ -374,7 +374,7 @@ export async function fetchClients(): Promise<{ groupEje: LayerGroup[], groupCot
     });
 
     let parentGroup: LayerGroup | null = null;
-    if (e.status == "COT") {
+    if (e.status == "COT" || e.status == "WEB") {
       if (e.user == "ADM") { parentGroup = groupADM; }
       else if (e.user == "CLC") { parentGroup = groupCLC; }
       else { parentGroup = groupCLX; }

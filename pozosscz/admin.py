@@ -56,6 +56,6 @@ class BaseCamionAdmin(admin.ModelAdmin):
 
 @admin.register(PreciosPozosSCZ)
 class PreciosPozosSCZAdmin(SingletonModelAdmin):
-    list_display = ('precio_diesel', 'consumo_viaje_hr', 'consumo_trabajo_hr', 'tiempo_trabajo', 'personal_camion', 'factor_tiempo', 'factor_cargado', 'tiempo_minimo_cobro', 'costo_saguapac_planta', 'costo_mantenimiento', 'utilidad_km', 'utilidad_base')
+    list_display = ('base_origen', 'precio_diesel', 'consumo_viaje_hr', 'consumo_trabajo_hr', 'tiempo_trabajo', 'personal_camion', 'factor_tiempo', 'factor_cargado', 'tiempo_minimo_cobro', 'costo_saguapac_planta', 'costo_mantenimiento', 'utilidad_km', 'utilidad_base')
     list_display_links = ('precio_diesel',)
     list_editable = ('consumo_viaje_hr', 'consumo_trabajo_hr', 'tiempo_trabajo', 'personal_camion', 'factor_tiempo', 'factor_cargado', 'tiempo_minimo_cobro', 'costo_saguapac_planta', 'costo_mantenimiento', 'utilidad_km', 'utilidad_base')

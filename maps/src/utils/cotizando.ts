@@ -1,4 +1,3 @@
-import { Marker } from "leaflet";
 import { DataPrice } from "../types/types";
 
 function getCsrfToken(): string {
@@ -13,7 +12,7 @@ function getCsrfToken(): string {
     return '';
 }
 
-export const cotizando = async (marker: Marker, url = '/api/v1/contratar/'): Promise<DataPrice> => {
+export const cotizando = async (lat: number, lon: number, url = '/api/v1/contratar/'): Promise<DataPrice> => {
     let data: DataPrice = {
         error: null,
         distances: [],
@@ -60,8 +59,8 @@ export const cotizando = async (marker: Marker, url = '/api/v1/contratar/'): Pro
                 'X-CSRFToken': getCsrfToken(),
             },
             body: JSON.stringify({
-                lat: marker.getLatLng().lat.toFixed(6),
-                lon: marker.getLatLng().lng.toFixed(6)
+                lat: lat.toFixed(6),
+                lon: lon.toFixed(6)
             })
         });
         if (!response.ok) {

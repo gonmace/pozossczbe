@@ -26,6 +26,7 @@
   --color-status-can: #E53935;
   --color-status-cot: #FF9800;
   --color-status-neg: #E53935;
+  --color-status-web: #9E9E9E;
 
   --color-precio300: #ffff00;
   --color-precio350: #fba657;
@@ -131,6 +132,7 @@
   .st-can { --st: var(--color-status-can); }
   .st-cot { --st: var(--color-status-cot); }
   .st-neg { --st: var(--color-status-neg); }
+  .st-web { --st: var(--color-status-web); }
 
   /* Card con borde izquierdo y fondo tintado */
   .status-card {

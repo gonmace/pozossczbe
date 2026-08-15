@@ -14,6 +14,34 @@ function getCsrfToken(): string {
   return '';
 }
 
+// Guarda una cotización pública (status "WEB"). El servidor ignora la llamada
+// si el usuario tiene sesión iniciada, así que solo se usa desde los flujos
+// públicos (/cotiza/ y el hero). Solo se llama al calcular el precio
+// ("Cotizar"): Confirmar y Pregunta por descuento solo abren WhatsApp y no
+// vuelven a tocar la fila guardada.
+export async function postCotizacionWeb(
+  lat: number,
+  lon: number,
+  cost: number,
+  user: "CLC" | "CLX",
+  cod: string = "",
+) {
+  return fetch("/api/v1/cotizacion-web/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRFToken": getCsrfToken(),
+    },
+    body: JSON.stringify({
+      lat: lat.toFixed(6),
+      lon: lon.toFixed(6),
+      cost,
+      user,
+      cod,
+    }),
+  });
+}
+
 export async function postData(
   name: string,
   phone: string,

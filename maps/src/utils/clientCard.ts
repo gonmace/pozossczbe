@@ -40,6 +40,8 @@ export interface CardOptions {
   showFlyTo?: boolean;
   /** Muestra el botón de editar */
   showEdit?: boolean;
+  /** Muestra el botón de programar servicio (crea un nuevo Cliente en PRG) */
+  showSchedule?: boolean;
   /** Muestra la fecha */
   showDate?: boolean;
   /** Clases extra para el div raíz */
@@ -59,6 +61,15 @@ export function renderClientCard(c: CardClient, opts: CardOptions = {}): string 
        </a>`
     : "";
   const fecha = c.created_at ? fmtFecha.format(new Date(c.created_at)) : "";
+
+  const scheduleBtn = opts.showSchedule
+    ? `<button class="btn btn-xs btn-ghost btn-square"
+               data-card-action="schedule" data-id="${c.id}" title="Programar servicio">
+         <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+           <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M9.5 15l1.8 1.8L15 13"/>
+         </svg>
+       </button>`
+    : "";
 
   const flyBtn = opts.showFlyTo !== false
     ? `<button class="btn btn-xs btn-ghost btn-square status-fly-btn"
@@ -111,6 +122,7 @@ export function renderClientCard(c: CardClient, opts: CardOptions = {}): string 
         <div class="flex items-center gap-1.5 shrink-0">
           ${c.cost ? `<span class="text-xs font-bold px-1.5 py-0.5 rounded-md" style="background:rgba(255,213,79,0.1);border:1px solid rgba(255,213,79,0.35);color:#FFD54F;">Bs.${c.cost}</span>` : ""}
           ${fecha && opts.showDate !== false ? `<span class="text-[10px]" style="opacity:0.35;">${fecha}</span>` : ""}
+          ${scheduleBtn}
           ${flyBtn}
           ${editBtn}
         </div>
@@ -128,7 +140,7 @@ export function renderClientCard(c: CardClient, opts: CardOptions = {}): string 
 export function attachCardListeners(
   container: HTMLElement,
   clientsMap: Map<number, CardClient>,
-  handlers: { onFly?: (c: CardClient) => void; onEdit?: (c: CardClient) => void },
+  handlers: { onFly?: (c: CardClient) => void; onEdit?: (c: CardClient) => void; onSchedule?: (c: CardClient) => void },
 ) {
   container.addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-card-action]");
@@ -141,6 +153,7 @@ export function attachCardListeners(
     e.stopPropagation();
     if (action === "fly") handlers.onFly?.(client);
     else if (action === "edit") handlers.onEdit?.(client);
+    else if (action === "schedule") handlers.onSchedule?.(client);
   });
 }
 

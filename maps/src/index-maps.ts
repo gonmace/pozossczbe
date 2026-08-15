@@ -18,8 +18,7 @@ import "../src/utils/leaflet.Control.Center.css";
 import "leaflet.locatecontrol/dist/L.Control.Locate.min.css";
 import "./utils/leaflet.locate.css";
 import type { DataPrice } from "./types/types";
-import { cotizando } from "./utils/cotizando.ts";
-import { postData } from "./utils/postCliente.ts";
+import { calcularCotizacion } from "./utils/cotizacionWeb.ts";
 import { mensajeWapp } from "./utils/utils.ts";
 import "../../main/src/whatsapp-bubble.ts";
 
@@ -43,10 +42,12 @@ let marker: Marker;
 let paths: Path[] = [];
 let dataPrice: DataPrice;
 let precioFinal: number;
+let codigoActual: string;
 const overlay = document.getElementById("overlay") as HTMLDivElement;
 const modalPrecio = document.getElementById("precios") as HTMLDialogElement;
 const parrafo = modalPrecio.querySelector("p") as HTMLParagraphElement;
 const botonConfirmar = document.getElementById("confirmar") as HTMLButtonElement;
+const botonDescuento = document.getElementById("preguntaDescuento") as HTMLButtonElement;
 const modalPrecioClose = document.getElementById("modalPrecioClose") as HTMLButtonElement;
 const modalPrecioCancelar = document.getElementById("cancelar") as HTMLButtonElement;
 
@@ -400,14 +401,21 @@ function onMapClick(e: LeafletMouseEvent) {
   // Agrega boton de COTIZA que haga fetch al servidor de mapas y encontrar rutas y tiempos
   async function contratar() {
     overlay.classList.remove("invisible");
-    dataPrice = await cotizando(marker);
+    // Cálculo + guardado de la cotización web: misma lógica compartida con
+    // el widget del hero (utils/cotizacionWeb.ts). Solo guarda para
+    // visitantes anónimos; Confirmar/Descuento/Cancelar no vuelven a tocar
+    // esta fila.
+    const marca = marker.getLatLng();
+    const resultado = await calcularCotizacion(marca.lat, marca.lng, !ISAUTHENTICATED);
+    dataPrice = resultado.dataPrice;
     overlay.classList.add("invisible");
     if (dataPrice.error) {
       parrafo.innerHTML = dataPrice.error;
       modalPrecio.showModal();
       return;
     }
-    precioFinal = Math.round(dataPrice.precio / 10) * 10;
+    precioFinal = resultado.precio;
+    codigoActual = resultado.codigo;
 
     const distIda = dataPrice.distances[dataPrice.origen] / 1000;
     const distRetorno = dataPrice.distance_saguapac[0] / 1000;
@@ -443,7 +451,7 @@ function onMapClick(e: LeafletMouseEvent) {
       { concepto: 'PRECIO FINAL',         valor: `Bs. ${precioFinal}` },
     ]);
 
-    botonConfirmar.textContent = "Guardar";
+    botonConfirmar.textContent = "Confirmar";
     if (dataPrice.distance_scz < dataPrice.distancia_maxima_cotizar && dataPrice.factor_zona == 0) {
       parrafo.innerHTML = `<b>Bs.${precioFinal}</b> ${DATOS_GENERALES.mensaje_cotizar} <span class=" italic">Precio referencial, sujeto a confirmación. Contáctanos para más detalles.</span>` ;
       botonConfirmar.textContent = "Contáctanos";
@@ -463,62 +471,35 @@ function onMapClick(e: LeafletMouseEvent) {
     modalAbortController = new AbortController();
     const { signal } = modalAbortController;
 
-    botonConfirmar.addEventListener("click", async () => {
-      let codigo = generarCodigo(precioFinal);
+    // Confirmar solo abre WhatsApp con el mismo código: no vuelve a tocar
+    // la fila guardada al calcular el precio.
+    botonConfirmar.addEventListener("click", () => {
+      let codigo = codigoActual;
       let celular = DATOS_GENERALES.celular;
-      if (ISAUTHENTICATED) {
-        console.log("Está autenticado, no guarda cotización");
-      } else {
-      await postData("pozosscz.com", "", precioFinal, marker, "COT", "CLC", codigo).then(() => {
-        console.log("Confirmado - Cliente guardado");
-      });
-      }
-      let menLatLon = `Código de cotización:${codigo}%0D%0A
+      let menLatLon = `Código de cotización: ${codigo}%0D%0A
       ¡Hola!, Requiero el servicio de limpieza en la siguiente ubicación:%0D%0A
       https://maps.google.com/maps?q=${marker.getLatLng().lat.toFixed(7)}%2C${marker.getLatLng().lng.toFixed(7)}&z=17&hl=es`;
       mensajeWapp(menLatLon, celular);
     }, { signal });
 
+    // Consulta por descuento de zona: mismo código de cotización, mensaje distinto.
+    // Tampoco vuelve a tocar la fila guardada al calcular el precio.
+    botonDescuento.addEventListener("click", () => {
+      let codigo = codigoActual;
+      let celular = DATOS_GENERALES.celular;
+      let menDescuento = `Código de cotización: ${codigo}%0D%0A
+      ¡Hola!, quisiera consultar si hay algún descuento disponible para mi zona en el servicio de limpieza en la siguiente ubicación:%0D%0A
+      https://maps.google.com/maps?q=${marker.getLatLng().lat.toFixed(7)}%2C${marker.getLatLng().lng.toFixed(7)}&z=17&hl=es`;
+      mensajeWapp(menDescuento, celular);
+    }, { signal });
+
     const botonesCancelar = [modalPrecioClose, modalPrecioCancelar];
-    botonesCancelar.forEach(async (boton) => {
-      boton.addEventListener("click", async () => {
+    botonesCancelar.forEach((boton) => {
+      boton.addEventListener("click", () => {
         modalPrecio.close();
-        if (ISAUTHENTICATED) {
-          console.log("Está autenticado, no guarda cotización");
-        } else {
-          await postData("pozosscz.com", "", precioFinal, marker, "COT", "CLX").then(() => {
-            console.log("Cancelado - Cliente guardado");
-          });
-        }
+        // No se reenvía nada: la cotización ya quedó guardada como "CLX" al
+        // calcular el precio, y cancelar no cambia ese estado.
       }, { signal });
     });
     
   }
-
-  function generarCodigo(precio) {
-    const now = new Date();
-    
-    // Año: últimos dos dígitos
-    const anio = now.getFullYear() % 100;
-  
-    // Mes y día con 2 dígitos
-    const mes = String(now.getMonth() + 1).padStart(2, '0'); // meses van de 0 a 11
-    const dia = String(now.getDate()).padStart(2, '0');
-  
-    // Convertir precio a string para acceder a dígitos
-    const precioStr = precio.toString();
-  
-    let d1 = precioStr[0] || '0';
-    let d2 = precioStr[1] || '0';
-    let d3 = precioStr[2] || '0';
-    let d4 = precioStr[3] || '';
-  
-    // Si el precio es de 3 dígitos, usar d3 como último
-    // Si el precio es de 4 dígitos, usar d3 + d4 como último
-    const final = precioStr.length === 4 ? d3 + d4 : d3;
-  
-    // Concatenar todos los componentes
-    const codigo = `${anio}${d1}${mes}${d2}${dia}${final}`;
-    return codigo;
-  }
-  

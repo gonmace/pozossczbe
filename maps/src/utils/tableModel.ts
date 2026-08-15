@@ -50,7 +50,39 @@ const STATUS_LABEL: Record<string, string> = {
 let currentPage = 1;
 const itemsPerPage = 50;
 let totalPages = 1;
-let clients: Client[] = [];
+let allClients: Client[] = [];
+
+// Clave de día (YYYY-MM-DD) en hora local, usando hora_programada con fallback a created_at
+function dayKeyOf(c: { hora_programada?: string | null; created_at: string }): string {
+  const raw = c.hora_programada ?? c.created_at;
+  if (!raw) return "__";
+  const dt = new Date(raw);
+  if (isNaN(dt.getTime())) return "__";
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const d = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// Timestamp para ordenar (mismo fallback); sin fecha → al final
+function sortTime(c: { hora_programada?: string | null; created_at: string }): number {
+  const raw = c.hora_programada ?? c.created_at;
+  if (!raw) return -Infinity;
+  const t = new Date(raw).getTime();
+  return isNaN(t) ? -Infinity : t;
+}
+
+// Orden global descendente — mantiene cada día como un bloque único en toda la tabla
+function sortAllClients() {
+  allClients.sort((a, b) => sortTime(b) - sortTime(a));
+}
+
+// Página donde cae un cliente dado el orden global actual
+function pageOfClient(id: number): number {
+  const idx = allClients.findIndex(c => c.id === id);
+  if (idx === -1) return currentPage;
+  return Math.floor(idx / itemsPerPage) + 1;
+}
 
 export function tableModal(map: LeafletMap) {
   // Create modal container
@@ -122,11 +154,11 @@ export function tableModal(map: LeafletMap) {
   closeModal?.addEventListener("click", () => modalContainer.remove());
 
   prevPage?.addEventListener("click", () => {
-    if (currentPage > 1) { currentPage--; loadClients(); }
+    if (currentPage > 1) { currentPage--; updateTable(); updatePagination(); }
   });
 
   nextPage?.addEventListener("click", () => {
-    if (currentPage < totalPages) { currentPage++; loadClients(); }
+    if (currentPage < totalPages) { currentPage++; updateTable(); updatePagination(); }
   });
 
   // ── Event delegation — UN solo listener para toda la tabla ────────────────
@@ -189,11 +221,11 @@ export function tableModal(map: LeafletMap) {
       const response = await fetch(`/api/v1/clientes/`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      const allClients: Client[] = Array.isArray(data) ? data : (data.results ?? []);
+      allClients = Array.isArray(data) ? data : (data.results ?? []);
+      sortAllClients();
 
-      const startIndex = (currentPage - 1) * itemsPerPage;
-      clients      = allClients.slice(startIndex, startIndex + itemsPerPage);
-      totalPages   = Math.max(1, Math.ceil(allClients.length / itemsPerPage));
+      totalPages = Math.max(1, Math.ceil(allClients.length / itemsPerPage));
+      if (currentPage > totalPages) currentPage = totalPages;
 
       updateTable();
       updatePagination();
@@ -215,25 +247,22 @@ export function tableModal(map: LeafletMap) {
 
   function updateTable() {
     const countEl = modalContainer.querySelector<HTMLElement>("#tableClientCount");
-    if (countEl) countEl.textContent = clients.length.toString();
+    if (countEl) countEl.textContent = allClients.length.toString();
+
+    // allClients ya está ordenado globalmente (sortAllClients) — solo se corta la página
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const pageClients = allClients.slice(startIndex, startIndex + itemsPerPage);
 
     // Actualizar mapa id→cliente para el event delegation
     clientMap.clear();
-    clients.forEach(c => clientMap.set(c.id, c));
-
-    // Ordenar por hora_programada descendente para que el zebra agrupe días correlativos
-    const sorted = [...clients].sort((a, b) => {
-      const da = a.hora_programada ?? a.created_at ?? "";
-      const db = b.hora_programada ?? b.created_at ?? "";
-      return db.localeCompare(da);
-    });
+    pageClients.forEach(c => clientMap.set(c.id, c));
 
     let zebraDayKey = "";
     let zebraIdx    = -1;
 
-    tableBody.innerHTML = sorted.map(client => {
+    tableBody.innerHTML = pageClients.map(client => {
       const fechaRef = client.hora_programada ?? client.created_at;
-      const dayKey = fechaRef ? fechaRef.slice(0, 10) : "__";
+      const dayKey = dayKeyOf(client);
 
       // Nuevo día → insertar separador y rotar color
       let separator = "";
@@ -275,7 +304,7 @@ export function tableModal(map: LeafletMap) {
         : `<span class="text-xs italic" style="opacity:0.3;">—</span>`;
 
       return separator + `
-      <tr class="hover transition-colors" style="border-left:3px solid ${color};background:${rowBg};">
+      <tr class="hover transition-colors" data-row-id="${client.id}" style="border-left:3px solid ${color};background:${rowBg};">
         <td class="text-xs w-[80px] max-w-[80px]">
           <span class="font-medium line-clamp-2 leading-tight">${client.name || '<span class="italic" style="opacity:0.3;">Sin nombre</span>'}</span>
         </td>
@@ -458,12 +487,38 @@ export function tableModal(map: LeafletMap) {
         body: JSON.stringify({ hora_programada: isoVal }),
       });
       if (!resp.ok) throw new Error();
-      client.hora_programada = isoVal;
+      // Usar la fecha/hora que devuelve el server (tz-aware) en vez del string local
+      // enviado, para que el formato coincida con el resto de la lista.
+      let saved = isoVal;
+      try {
+        const data = await resp.json();
+        if (data && data.hora_programada) saved = data.hora_programada;
+      } catch { /* body no parseable, se mantiene el fallback local */ }
+      client.hora_programada = saved;
+
+      // Reordenar globalmente y saltar a la página donde quedó la fila
+      sortAllClients();
+      currentPage = pageOfClient(client.id);
       updateTable();
+      updatePagination();
+      highlightRow(client.id);
+
       if ((window as any).refreshClientLayers) (window as any).refreshClientLayers();
     } catch {
       createToast("fecha", "map", "Error al actualizar fecha/hora", "top", "error");
     }
+  }
+
+  // Resalta y centra la fila tras un reacomodo, para que se vea a dónde saltó
+  function highlightRow(id: number) {
+    const row = tableBody.querySelector<HTMLElement>(`tr[data-row-id="${id}"]`);
+    if (!row) return;
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    row.style.transition = "box-shadow 0.3s ease";
+    row.style.boxShadow = "inset 0 0 0 2px #38bdf8";
+    setTimeout(() => {
+      row.style.boxShadow = "";
+    }, 1500);
   }
 
   function inlineEditDate(cell: HTMLElement, client: Client) {
@@ -479,7 +534,10 @@ export function tableModal(map: LeafletMap) {
     cell.appendChild(input);
     input.focus();
 
+    let saved = false;
     const commit = () => {
+      if (saved) return;
+      saved = true;
       if (input.value && input.value !== date) {
         patchHoraProgramada(client, input.value, time);
       } else {
@@ -491,7 +549,7 @@ export function tableModal(map: LeafletMap) {
       if (cell.contains(input)) commit();
     });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { cell.textContent = original; }
+      if (e.key === "Escape") { saved = true; cell.textContent = original; }
     });
   }
 
@@ -509,7 +567,10 @@ export function tableModal(map: LeafletMap) {
     cell.appendChild(input);
     input.focus();
 
+    let saved = false;
     const commit = () => {
+      if (saved) return;
+      saved = true;
       if (input.value !== time) {
         patchHoraProgramada(client, date, input.value);
       } else {
@@ -521,7 +582,7 @@ export function tableModal(map: LeafletMap) {
       if (cell.contains(input)) commit();
     });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { cell.innerHTML = original; }
+      if (e.key === "Escape") { saved = true; cell.innerHTML = original; }
     });
   }
 

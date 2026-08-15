@@ -1,4 +1,4 @@
-{% load l10n %}
+{% load l10n vstatic %}
 {% comment %}
 Card "Cotiza en 30 segundos" reutilizable (mapa Leaflet + Ubícame + cálculo de precio).
 Parámetros opcionales:
@@ -109,19 +109,13 @@ Requiere en el contexto: mensaje_cotizar, celular.
   }
 
   var WA_NUM_A = "{{ celular|escapejs }}".replace(/[^0-9]/g, '');
-  var WA_MSG_A = "{{ mensaje_cotizar|default:''|escapejs }}";
 
-  function getCsrfA() {
-    return (document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/) || [, ''])[1];
-  }
-
-  function confirmarServicioA(precio) {
+  function confirmarServicioA(precio, codigo) {
     var btn = document.getElementById('btnCalcularA');
     if (!btn) return;
     var c = window.__heroCoords;
-    var msg = WA_MSG_A;
-    if (c) { msg += '\nMi ubicación: https://maps.google.com/?q=' + c.lat.toFixed(6) + ',' + c.lon.toFixed(6); }
-    if (precio) { msg += '\nPrecio estimado: Bs. ' + precio; }
+    var msg = 'Código de cotización: ' + codigo + '\n¡Hola!, Requiero el servicio de limpieza en la siguiente ubicación:';
+    if (c) { msg += '\nhttps://maps.google.com/maps?q=' + c.lat.toFixed(7) + ',' + c.lon.toFixed(7) + '&z=17&hl=es'; }
     btn.removeAttribute('onclick');
     btn.setAttribute('href', 'https://wa.me/' + WA_NUM_A + (msg ? '?text=' + encodeURIComponent(msg) : ''));
     btn.setAttribute('target', '_blank');
@@ -138,28 +132,28 @@ Requiere en el contexto: mensaje_cotizar, celular.
     var el = document.getElementById('precioEstimadoA');
     if (overlay) overlay.classList.remove('hidden');
     var started = Date.now();
-    var precio = null, motivo = '';
+    var precio = null, motivo = '', esReferencial = false, codigo = '';
     try {
-      var r = await fetch('/api/v1/contratar-saguapac/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfA() },
-        body: JSON.stringify({ lat: c.lat.toFixed(6), lon: c.lon.toFixed(6) })
-      });
-      var d = await r.json();
-      if (!r.ok || d.error) { motivo = 'No disponible'; }
+      // Misma lógica de cálculo + guardado que /cotiza/ (utils/cotizacionWeb.ts,
+      // expuesta en window por maps/cotiza_hero.js). Guarda siempre: el
+      // servidor ignora la llamada si hay sesión iniciada.
+      var resultado = await window.calcularCotizacion(c.lat, c.lon, true);
+      var d = resultado.dataPrice;
+      if (d.error) { motivo = 'No disponible'; }
       else if (d.distance_scz > d.distancia_maxima_cotizar) { motivo = 'Fuera de zona'; }
-      else { precio = d.precio; }
+      else { precio = resultado.precio; esReferencial = resultado.esReferencial; codigo = resultado.codigo; }
     } catch (e) { motivo = 'Error'; }
     await new Promise(function (res) { setTimeout(res, Math.max(0, 5000 - (Date.now() - started))); });
     if (overlay) overlay.classList.add('hidden');
     if (precio !== null) {
       var lbl = document.getElementById('labelPrecioA');
-      if (lbl && lbl.dataset.msg) { lbl.textContent = lbl.dataset.msg; }
+      if (lbl) { lbl.textContent = esReferencial ? 'Precio referencial, sujeto a confirmación' : (lbl.dataset.msg || lbl.textContent); }
       if (el) el.textContent = 'Bs. ' + precio;
-      confirmarServicioA(precio);
+      confirmarServicioA(precio, codigo);
     } else if (el) {
       el.textContent = motivo;
     }
   }
 </script>
+<script type="module" src="{% vstatic 'maps/cotiza_hero.js' %}"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" onload="initHeroMapaA()"></script>

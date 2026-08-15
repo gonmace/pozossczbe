@@ -42,11 +42,14 @@ export function getCamiones(): CamionInfo[] {
   return _camiones;
 }
 
-/** Genera <option> elements para un <select> de camiones. */
+/** Genera <option> elements para un <select> de camiones.
+ *  Si no hay uno ya asignado (selectedId nulo) y solo existe un camión
+ *  disponible, se preselecciona ese único camión en vez de "Sin asignar". */
 export function buildCamionOptions(selectedId: number | null | undefined): string {
-  const none = `<option value=""${!selectedId ? " selected" : ""}>— Sin asignar —</option>`;
+  const effectiveId = selectedId ?? (_camiones.length === 1 ? _camiones[0].id : null);
+  const none = `<option value=""${effectiveId == null ? " selected" : ""}>— Sin asignar —</option>`;
   const opts = _camiones.map(c => {
-    const sel = c.id === selectedId ? " selected" : "";
+    const sel = c.id === effectiveId ? " selected" : "";
     return `<option value="${c.id}"${sel}>${c.operador}</option>`;
   }).join("");
   return none + opts;

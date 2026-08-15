@@ -28,6 +28,17 @@ GARAJE_BASE = (-17.78595813, -63.12451243, "garaje")
 
 BASES = [SAGUAPAC_BASE, GARAJE_BASE]
 
+
+def get_base_origen():
+    """Base única de origen: la configurada en Precios, o Saguapac por defecto."""
+    p = PreciosPozosSCZ.objects.first()
+    base = getattr(p, 'base_origen', None)
+    if base is None or base.deleted:
+        base = BaseCamion.objects.filter(deleted=False, name__icontains='saguapac').first()
+    if base:
+        return (base.coordinates[1], base.coordinates[0], base.name)
+    return (SAGUAPAC_BASE[1], SAGUAPAC_BASE[0], SAGUAPAC_BASE[2])
+
 # Waypoints for route calculations
 WAYPOINT_URUBO = (-17.7498515, -63.2154661)
 WAYPOINT_TORNO = (-17.988987, -63.389942)
@@ -174,10 +185,9 @@ class ContratarAPIView(APIView):
         return None
 
     def get_bases(self, basecamiones):
-        """Retorna lista de bases (lon, lat, nombre) para el cálculo de rutas."""
-        bases = [(base.coordinates[1], base.coordinates[0], base.name) for base in basecamiones]
-        self._grupos = {'bases': len(bases), 'clientes': 0, 'camiones': 0}
-        return bases
+        """Origen único configurado en Precios (lon, lat, nombre)."""
+        self._grupos = {'bases': 1, 'clientes': 0, 'camiones': 0}
+        return [get_base_origen()]
 
     def post(self, request, *args, **kwargs):
         # Extract data from request
@@ -201,8 +211,6 @@ class ContratarAPIView(APIView):
         
         # Get basecamiones
         basecamiones = BaseCamion.objects.filter(deleted=False, available=True)
-        if not basecamiones:
-            basecamiones = BASES
         # Se iniverte coordenadas para el OSRM
 
         bases = self.get_bases(basecamiones)
@@ -368,15 +376,6 @@ class ContratarAPIView(APIView):
         )
 
 
-class ContratarSaguapacAPIView(ContratarAPIView):
-    """Igual que ContratarAPIView pero usa SOLO Saguapac como única base/origen."""
-
-    def get_bases(self, basecamiones):
-        self._grupos = {'bases': 1, 'clientes': 0, 'camiones': 0}
-        # get_bases devuelve tuplas (lon, lat, nombre); SAGUAPAC_BASE es (lat, lon, nombre)
-        return [(SAGUAPAC_BASE[1], SAGUAPAC_BASE[0], SAGUAPAC_BASE[2])]
-
-
 class ContratarAdminAPIView(ContratarAPIView):
     """Igual que ContratarAPIView pero agrega camiones activos como bases adicionales."""
     permission_classes = [IsAuthenticated]
@@ -387,6 +386,7 @@ class ContratarAdminAPIView(ContratarAPIView):
         from clientes.models import Cliente
 
         bases_fijas = [(base.coordinates[1], base.coordinates[0], base.name) for base in basecamiones]
+        bases_fijas = bases_fijas or [get_base_origen()]
 
         # Clientes activos con coordenadas
         from django.db.models import Case, When, IntegerField
@@ -400,7 +400,7 @@ class ContratarAdminAPIView(ContratarAPIView):
         )
         clientes_activos = list(Cliente.objects.filter(
             activo=True, lat__isnull=False, lon__isnull=False
-        ).annotate(status_order=status_order).order_by('status_order'))
+        ).exclude(status='WEB').annotate(status_order=status_order).order_by('status_order'))
         bases_clientes = [(c.lon, c.lat, c.name or c.tel1) for c in clientes_activos]
 
         # Camiones activos con tanque no lleno y con señal reciente (últimos 30 min)
@@ -427,6 +427,65 @@ class ContratarAdminAPIView(ContratarAPIView):
             [None] * len(bases_camiones)
         )
         return bases_fijas + bases_clientes + bases_camiones
+
+
+class CotizacionWebAPIView(APIView):
+    """Guarda una cotización hecha desde la web pública (status WEB).
+
+    Cada cálculo de precio ("Cotizar") crea su propia fila. "Confirmar" y
+    "Pregunta por descuento" solo abren WhatsApp con el mismo código: no
+    vuelven a tocar esa fila. Solo guarda para visitantes anónimos: si hay
+    sesión (admin cotizando desde /cotiza/ o el hero), responde sin crear
+    nada.
+
+    El monto calculado se guarda únicamente en "Precio sistema"
+    (precio_cotizado); "Precio final" (cost) queda vacío para que ventas lo
+    complete si negocia un precio distinto — mismo criterio que ya usa el
+    flujo admin (P. Sistema readonly vs P. Final editable).
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'cotiza_web'
+
+    def post(self, request):
+        from clientes.models import Cliente
+        from clientes.views import _bump_clientes_version
+
+        if request.user.is_authenticated:
+            return Response({'guardado': False, 'motivo': 'sesion'})
+
+        try:
+            lat = float(request.data.get('lat'))
+            lon = float(request.data.get('lon'))
+        except (TypeError, ValueError):
+            return Response({'error': 'lat/lon inválidos'}, status=status.HTTP_400_BAD_REQUEST)
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return Response({'error': 'lat/lon fuera de rango'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            cost = int(request.data.get('cost') or 0)
+        except (TypeError, ValueError):
+            cost = 0
+        cost = max(0, min(cost, 100000))
+
+        user = request.data.get('user')
+        if user not in ('CLC', 'CLX'):
+            user = 'CLC'
+
+        cod = str(request.data.get('cod') or '')[:10]
+
+        cliente = Cliente.objects.create(
+            name='pozosscz.com',
+            tel1='',
+            lat=lat, lon=lon,
+            precio_cotizado=cost,
+            status='WEB',
+            user=user,
+            cod=cod,
+            activo=True,
+        )
+        _bump_clientes_version()
+        return Response({'guardado': True, 'id': cliente.id}, status=status.HTTP_201_CREATED)
 
 
 _ALLOWED_MAP_DOMAINS = {

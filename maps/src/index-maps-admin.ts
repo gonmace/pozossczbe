@@ -195,7 +195,7 @@ const cotiza = control.custom({
       const btn = document.getElementById("cotiza") as HTMLButtonElement | null;
       if (!btn || btn.disabled) return;
       overlay.classList.remove("invisible");
-      dataPrice = await cotizando(marker, '/api/v1/contratar-admin/');
+      dataPrice = await cotizando(marker.getLatLng().lat, marker.getLatLng().lng, '/api/v1/contratar-admin/');
       overlay.classList.add("invisible");
       if (dataPrice.error) {
         createToast("cotiza", "map", dataPrice.error, "top", "error");
@@ -1494,6 +1494,7 @@ const amColorPorStatus: Record<string, string> = {
   EJE: "green",
   CAN: "red",
   COT: "orange",
+  WEB: "gray",
 };
 
 function crearIconoCliente(status: string, cost: number | null = null, sinChofer = false): ReturnType<typeof divIcon> {
@@ -1545,7 +1546,7 @@ async function cargarClientesJornada() {
 const _WA_SVG_MARKER = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A11.93 11.93 0 0 0 12 0C5.37 0 0 5.37 0 12c0 2.11.55 4.16 1.6 5.97L0 24l6.18-1.62A11.93 11.93 0 0 0 12 24c6.63 0 12-5.37 12-12 0-3.21-1.25-6.22-3.48-8.52zm-8.52 18.4a9.89 9.89 0 0 1-5.04-1.38l-.36-.22-3.67.96.98-3.58-.23-.37A9.93 9.93 0 0 1 2.07 12c0-5.48 4.46-9.93 9.93-9.93 2.65 0 5.15 1.03 7.02 2.91A9.88 9.88 0 0 1 21.93 12c0 5.48-4.45 9.93-9.93 9.93zm5.44-7.44c-.3-.15-1.77-.87-2.04-.97-.28-.1-.48-.15-.68.15-.2.3-.77.97-.94 1.17-.18.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.47-.89-.79-1.49-1.76-1.66-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.44-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.68-1.63-.93-2.23-.24-.58-.49-.5-.68-.51-.17 0-.37-.02-.57-.02s-.52.07-.8.37c-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.1 4.49.71.31 1.27.49 1.7.63.72.23 1.37.2 1.88.12.57-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.2-.57-.35z"/></svg>`;
 
 function _makeClientePopupHtml(c: DatoCliente): string {
-  const STATUS_LABEL: Record<string, string> = { PRG: "Programado", EJE: "Ejecutado", CAN: "Cancelado", COT: "Cotizado" };
+  const STATUS_LABEL: Record<string, string> = { PRG: "Programado", EJE: "Ejecutado", CAN: "Cancelado", COT: "Cotizado", WEB: "Web" };
   const waHtml = c.tel1
     ? `<a href="https://wa.me/${c.tel1.replace(/[^\d+]/g, "")}" target="_blank"
          style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;
@@ -1572,7 +1573,7 @@ function _makeClientePopupHtml(c: DatoCliente): string {
 }
 
 function _crearMarkerCliente(c: DatoCliente): Marker {
-  const label = ({ EJE: "Ejecutado", CAN: "Cancelado", COT: "Cotizado" } as Record<string, string>)[c.status] ?? "";
+  const label = ({ EJE: "Ejecutado", CAN: "Cancelado", COT: "Cotizado", WEB: "Web" } as Record<string, string>)[c.status] ?? "";
   const precio = c.cost ? `Bs. ${c.cost}` : "";
   const comentario = c.address?.trim() || "";
   const hora = (() => {
@@ -1595,12 +1596,12 @@ function renderSidebarClientes(clientes: DatoCliente[]) {
   if (clientes.length === 0) {
     sidebarList.innerHTML = `<p class="text-xs text-base-content/40 text-center py-2">Sin clientes hoy</p>`;
   } else {
-    const STATUS_CLASS_SB: Record<string, string> = { PRG: "st-prg", EJE: "st-eje", CAN: "st-can", COT: "st-cot" };
-    const STATUS_ORDER_SB: Record<string, number> = { PRG: 0, EJE: 1, CAN: 2, COT: 3 };
+    const STATUS_CLASS_SB: Record<string, string> = { PRG: "st-prg", EJE: "st-eje", CAN: "st-can", COT: "st-cot", WEB: "st-web" };
+    const STATUS_ORDER_SB: Record<string, number> = { PRG: 0, EJE: 1, CAN: 2, COT: 3, WEB: 4 };
     const clientesOrdenados = [...clientes].sort((a, b) => {
       const d = (STATUS_ORDER_SB[a.status] ?? 9) - (STATUS_ORDER_SB[b.status] ?? 9);
       if (d !== 0) return d;
-      if (a.status === "COT") {
+      if (a.status === "COT" || a.status === "WEB") {
         const da = a.created_at ?? "";
         const db = b.created_at ?? "";
         return db.localeCompare(da);
@@ -1628,7 +1629,7 @@ function renderSidebarClientes(clientes: DatoCliente[]) {
       const stClass = STATUS_CLASS_SB[c.status] ?? "";
       const precio = c.cost ? `<span class="shrink-0 text-[10px] font-bold" style="color:#FFD54F;">Bs.${c.cost}</span>` : "";
       const cotFechaSB = (() => {
-        if (c.status !== "COT" || !c.created_at) return "";
+        if ((c.status !== "COT" && c.status !== "WEB") || !c.created_at) return "";
         const dt = new Date(c.created_at);
         if (isNaN(dt.getTime())) return "";
         return `<div>${dt.toLocaleDateString("es-BO", { day: "2-digit", month: "2-digit" })}</div><div>${dt.toLocaleTimeString("es-BO", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>`;
@@ -1700,9 +1701,9 @@ function renderSidebarClientes(clientes: DatoCliente[]) {
       });
     });
   }
-  const counts: Record<string, number> = { PRG: 0, EJE: 0, CAN: 0, COT: 0 };
+  const counts: Record<string, number> = { PRG: 0, EJE: 0, CAN: 0, COT: 0, WEB: 0 };
   for (const c of clientes) if (c.status in counts) counts[c.status]++;
-  for (const [st, elId] of [["PRG","sidebar-count-prg"],["EJE","sidebar-count-eje"],["CAN","sidebar-count-can"],["COT","sidebar-count-cot"]] as [string,string][]) {
+  for (const [st, elId] of [["PRG","sidebar-count-prg"],["EJE","sidebar-count-eje"],["CAN","sidebar-count-can"],["COT","sidebar-count-cot"],["WEB","sidebar-count-web"]] as [string,string][]) {
     const el = document.getElementById(elId);
     if (el) { el.textContent = counts[st] > 0 ? `${counts[st]}` : ""; el.style.display = counts[st] > 0 ? "" : "none"; }
   }

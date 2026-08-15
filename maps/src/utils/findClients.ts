@@ -7,10 +7,12 @@ interface Client {
   id: number;
   name: string;
   tel1: string;
+  tel2?: string | null;
   address: string;
   lat: number;
   lon: number;
   cost: number;
+  cod?: string | null;
   status: string;
   user: string;
   service: string;
@@ -128,23 +130,127 @@ async function editClient(client: Client): Promise<void> {
   });
 }
 
-function renderResults(clients: Client[], container: HTMLElement, map: Map, modal: HTMLDialogElement) {
+/** Fecha/hora por defecto del formulario de programar: hoy a las 08:00, en formato
+ *  local apto para <input type="datetime-local"> (sin conversión de zona horaria). */
+function defaultFechaProgramada(): string {
+  const d = new Date();
+  d.setHours(8, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Programa un nuevo servicio para un cliente recurrente: crea un Cliente NUEVO
+ *  (status PRG) copiando nombre/teléfono/ubicación del cliente encontrado, sin
+ *  necesidad de volver a ubicarlo en el mapa ni retipear sus datos. */
+async function scheduleService(client: Client): Promise<void> {
+  const schedModal = document.createElement('dialog');
+  schedModal.className = 'modal';
+  schedModal.innerHTML = `
+    <div class="modal-box w-11/12 max-w-2xl bg-primary/20">
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="font-bold text-lg">Programar servicio</h3>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost text-lg" onclick="this.closest('dialog').close()">✕</button>
+      </div>
+      <p class="text-sm opacity-70 mb-4">${client.name || '(sin nombre)'}${client.tel1 ? ' · ' + client.tel1 : ''}</p>
+      <form id="scheduleForm" class="flex flex-col gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="label"><span class="label-text">Fecha y hora</span></label>
+            <input type="datetime-local" id="schedFecha" class="input input-bordered" value="${defaultFechaProgramada()}" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Precio Bs.</span></label>
+            <input type="number" id="schedCost" class="input input-bordered" value="${client.cost || ''}" />
+          </div>
+          <div class="form-control sm:col-span-2">
+            <label class="label"><span class="label-text">Dirección / Comentario</span></label>
+            <input type="text" id="schedAddress" class="input input-bordered" value="${client.address || ''}" />
+          </div>
+          <div class="form-control sm:col-span-2">
+            <label class="label"><span class="label-text">Chofer / Camión</span></label>
+            <select id="schedCamion" class="select select-bordered">
+              ${buildCamionOptions(client.camion ?? null)}
+            </select>
+          </div>
+        </div>
+        <div class="flex gap-2 justify-end mt-2">
+          <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>Cerrar</button></form>
+  `;
+
+  document.body.appendChild(schedModal);
+  schedModal.showModal();
+
+  const form = schedModal.querySelector('#scheduleForm') as HTMLFormElement;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const camionVal = (document.getElementById('schedCamion') as HTMLSelectElement).value;
+    const fechaVal   = (document.getElementById('schedFecha') as HTMLInputElement).value;
+    const newService = {
+      name: client.name,
+      tel1: client.tel1,
+      tel2: client.tel2 ?? '',
+      lat: client.lat,
+      lon: client.lon,
+      address: (document.getElementById('schedAddress') as HTMLInputElement).value,
+      cost: Number((document.getElementById('schedCost') as HTMLInputElement).value) || 0,
+      cod: client.cod ?? '',
+      service: client.service || 'NOR',
+      user: 'ADM',
+      status: 'PRG',
+      activo: true,
+      hora_programada: fechaVal ? new Date(fechaVal).toISOString() : null,
+      camion: camionVal ? Number(camionVal) : null,
+    };
+
+    try {
+      const response = await fetch('/api/v1/clientes/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify(newService),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      createToast('scheduleService', 'map', 'Servicio programado', 'top', 'success');
+      setTimeout(() => {
+        schedModal.close();
+        schedModal.remove();
+        const searchInput = document.getElementById('searchNameInput') as HTMLInputElement;
+        if (searchInput) searchInput.dispatchEvent(new Event('input'));
+        (window as any).refreshClientLayers?.();
+      }, 500);
+    } catch (error) {
+      createToast('scheduleService', 'map', `Error: ${(error as Error).message}`, 'top', 'error');
+    }
+  });
+}
+
+// Mapa mutable id → cliente, repoblado en cada búsqueda. Se mantiene fuera de
+// renderResults para que attachCardListeners se registre una única vez sobre
+// el contenedor (ver initializeSearchModal) en lugar de acumular un listener
+// por cada tecleo.
+const _cardMap = new Map<number, CardClient>();
+
+function renderResults(clients: Client[], container: HTMLElement) {
   if (clients.length === 0) {
     container.innerHTML = `<p class="text-sm text-base-content/50 text-center col-span-2 py-4">No se encontraron resultados</p>`;
+    _cardMap.clear();
     return;
   }
 
-  const cardMap = new Map<number, CardClient>();
+  _cardMap.clear();
   container.innerHTML = clients.map(c => {
-    cardMap.set(c.id, c);
-    return renderClientCard(c, { showFlyTo: true, showEdit: true });
+    _cardMap.set(c.id, c);
+    return renderClientCard(c, { showFlyTo: true, showEdit: true, showSchedule: true });
   }).join("");
-
-  attachCardListeners(container, cardMap, {
-    onFly:  (c) => { map.flyTo([c.lat, c.lon], 16); modal.close(); },
-    onEdit: (c) => editClient(c as Client),
-  });
 }
+
+// El modal se reabre desde el mismo control sin recrear el DOM; esta bandera
+// evita re-registrar los listeners de búsqueda/teclado en cada apertura.
+let _initialized = false;
 
 export function initializeSearchModal(map: Map): void {
   const modal = document.getElementById('searchClientModal') as HTMLDialogElement;
@@ -155,6 +261,13 @@ export function initializeSearchModal(map: Map): void {
   const container  = document.getElementById('searchResultsBody') as HTMLElement;
   if (!nameInput || !phoneInput || !container) { console.error('Required elements not found'); return; }
 
+  if (_initialized) {
+    modal.showModal();
+    nameInput.focus();
+    return;
+  }
+  _initialized = true;
+
   let searchTimeout: ReturnType<typeof setTimeout>;
 
   const performSearch = async () => {
@@ -163,6 +276,7 @@ export function initializeSearchModal(map: Map): void {
 
     if (nameQuery.length < 2 && phoneQuery.length < 2) {
       container.innerHTML = `<p class="text-sm text-base-content/50 text-center col-span-2 py-4">Ingrese al menos 2 caracteres</p>`;
+      _cardMap.clear();
       return;
     }
 
@@ -177,12 +291,18 @@ export function initializeSearchModal(map: Map): void {
         return nameMatch && phoneMatch;
       });
 
-      renderResults(filtered, container, map, modal);
+      renderResults(filtered, container);
     } catch (error) {
       container.innerHTML = `<p class="text-sm text-error text-center col-span-2 py-4">Error al buscar clientes</p>`;
       console.error(error);
     }
   };
+
+  attachCardListeners(container, _cardMap, {
+    onFly:      (c) => { map.flyTo([c.lat, c.lon], 16); modal.close(); },
+    onEdit:     (c) => editClient(c as Client),
+    onSchedule: (c) => scheduleService(c as Client),
+  });
 
   [nameInput, phoneInput].forEach(input => {
     input.addEventListener('input', () => {

@@ -171,6 +171,7 @@ REST_FRAMEWORK = {
         'user': '300/minute',
         'login': '10/minute',
         'cotiza': '20/minute',
+        'cotiza_web': '10/minute',
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 50,

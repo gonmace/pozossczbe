@@ -103,7 +103,10 @@ class ClienteViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         instance = serializer.save()
         _bump_clientes_version()
-        _notificar_en_background(_usuario_id_de_instancia(instance))
+        if instance.status == 'PRG' and instance.camion_id:
+            _notificar_asignacion_en_background(instance)
+        else:
+            _notificar_en_background(_usuario_id_de_instancia(instance))
 
     def perform_update(self, serializer):
         # Capturar estado anterior antes de guardar

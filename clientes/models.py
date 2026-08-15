@@ -6,6 +6,7 @@ ESTADO_CLIENTE_CHOICES = [
     ('EJE', 'Ejecutado'),
     ('CAN', 'Cancelado'),
     ('NEG', 'L.negra'),
+    ('WEB', 'Web'),
 ]
 TIPO_SERVICIO_CHOICES = [
     ('NOR', 'Normal'),

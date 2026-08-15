@@ -30,16 +30,17 @@
         <form method="dialog">
           <button id="modalPrecioClose" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
 
-          <h3 class="font-display font-medium text-[20px] text-ink">Tu precio para esta zona</h3>
+          <h3 class="font-display font-medium text-[20px] text-ink">Tu precio para la ubicación</h3>
           <hr class="border-base-300 my-3"/>
           <p class="py-4 text-lg text-left"></p>
-          <div class="inline-flex items-center gap-1.5 bg-band text-accent font-display font-semibold text-[13px] px-3 py-1.5 rounded-full mb-4">
+          <div class="inline-flex items-center gap-1.5 bg-band text-accent font-display font-semibold text-[13px] px-3 py-1.5 rounded-full mb-1">
             <i class="ph-fill ph-check-circle" aria-hidden="true"></i> Precio fijo, sin sorpresas
           </div>
+          <p class="text-xs text-ink/50 mb-4">precio antes de impuestos</p>
           <div class="flex flex-wrap justify-end items-center gap-2">
-            <a href="https://wa.me/{{ celular }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm text-xs text-accent">
-              <i class="ph-fill ph-whatsapp-logo text-success" aria-hidden="true"></i> ¿Cotizar por WhatsApp?
-            </a>
+            <button id="preguntaDescuento" class="btn btn-ghost btn-xs text-accent h-auto min-h-0 py-1.5 px-2 max-w-[110px] whitespace-normal text-center leading-tight">
+              Pregunta por algún descuento por tu zona
+            </button>
             <button id="confirmar" class="btn btn-primary">Confirmar</button>
             <button id="cancelar" class="btn btn-ghost">Cancelar</button>
           </div>

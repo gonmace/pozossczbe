@@ -20,7 +20,7 @@ export interface DatoCliente {
 }
 
 export const STATUS_BORDER: Record<string, string> = {
-  PRG: "#2196F3", EJE: "#43A047", CAN: "#E53935", COT: "#FF9800",
+  PRG: "#2196F3", EJE: "#43A047", CAN: "#E53935", COT: "#FF9800", WEB: "#9E9E9E",
 };
 
 function getCsrf(): string {
@@ -100,12 +100,12 @@ export function initClientesActivosModal(map: Map) {
         return ia - ib;
       });
     } else {
-      const STATUS_ORDER: Record<string, number> = { PRG: 0, EJE: 1, CAN: 2, COT: 3 };
+      const STATUS_ORDER: Record<string, number> = { PRG: 0, EJE: 1, CAN: 2, COT: 3, WEB: 4 };
       filtrados = [..._clientes].sort((a, b) => {
         const orderDiff = (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9);
         if (orderDiff !== 0) return orderDiff;
-        // COT: más reciente primero
-        if (a.status === "COT") {
+        // COT / WEB: más reciente primero
+        if (a.status === "COT" || a.status === "WEB") {
           const da = a.created_at ?? "";
           const db = b.created_at ?? "";
           return db.localeCompare(da);
@@ -121,9 +121,9 @@ export function initClientesActivosModal(map: Map) {
     if (countEl) countEl.textContent = filtrados.length.toString();
 
     // Contadores por estado
-    const counts: Record<string, number> = { PRG: 0, EJE: 0, CAN: 0, COT: 0 };
+    const counts: Record<string, number> = { PRG: 0, EJE: 0, CAN: 0, COT: 0, WEB: 0 };
     for (const c of filtrados) if (c.status in counts) counts[c.status]++;
-    for (const [st, id] of [["PRG","modal-activos-prg"],["EJE","modal-activos-eje"],["CAN","modal-activos-can"],["COT","modal-activos-cot"]] as [string,string][]) {
+    for (const [st, id] of [["PRG","modal-activos-prg"],["EJE","modal-activos-eje"],["CAN","modal-activos-can"],["COT","modal-activos-cot"],["WEB","modal-activos-web"]] as [string,string][]) {
       const el = document.getElementById(id);
       if (el) {
         el.textContent = counts[st] > 0 ? `${st} ${counts[st]}` : "";
@@ -206,6 +206,7 @@ export function initClientesActivosModal(map: Map) {
                 <option value="EJE" ${c.status === "EJE" ? "selected" : ""}>Ejecutado</option>
                 <option value="COT" ${c.status === "COT" ? "selected" : ""}>Cotizado</option>
                 <option value="CAN" ${c.status === "CAN" ? "selected" : ""}>Cancelado</option>
+                <option value="WEB" ${c.status === "WEB" ? "selected" : ""}>Web</option>
               </select>
             </div>
           </div>
@@ -291,9 +292,9 @@ export function initClientesActivosModal(map: Map) {
         const [dragged] = newOrder.splice(fromIdx, 1);
         const newToIdx = newOrder.indexOf(targetId);
         newOrder.splice(insertBefore ? newToIdx : newToIdx + 1, 0, dragged);
-        // Re-agrupar por estado para respetar el orden PRG → EJE → CAN → COT
-        const STATUS_PRIORITY = ["PRG", "EJE", "CAN", "COT"];
-        const byStatus: Record<string, number[]> = { PRG: [], EJE: [], CAN: [], COT: [] };
+        // Re-agrupar por estado para respetar el orden PRG → EJE → CAN → COT → WEB
+        const STATUS_PRIORITY = ["PRG", "EJE", "CAN", "COT", "WEB"];
+        const byStatus: Record<string, number[]> = { PRG: [], EJE: [], CAN: [], COT: [], WEB: [] };
         for (const id of newOrder) {
           const cl = _clientes.find(x => x.id === id);
           const st = cl?.status ?? "COT";
@@ -317,8 +318,8 @@ export function initClientesActivosModal(map: Map) {
         if (c) c.status = newStatus;
         // Si hay orden manual, reajustar para que el cliente quede en su grupo correcto
         if (_manualOrder) {
-          const STATUS_PRIORITY = ["PRG", "EJE", "CAN", "COT"];
-          const byStatus: Record<string, number[]> = { PRG: [], EJE: [], CAN: [], COT: [] };
+          const STATUS_PRIORITY = ["PRG", "EJE", "CAN", "COT", "WEB"];
+          const byStatus: Record<string, number[]> = { PRG: [], EJE: [], CAN: [], COT: [], WEB: [] };
           for (const oid of _manualOrder) {
             const cl = _clientes.find(x => x.id === oid);
             const st = cl?.status ?? "COT";

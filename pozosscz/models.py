@@ -58,6 +58,16 @@ class DatosGenerales(SingletonModel):
 
 
 class PreciosPozosSCZ(SingletonModel):
+    base_origen = models.ForeignKey(
+        'BaseCamion',
+        verbose_name="Base de origen",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        limit_choices_to={'deleted': False},
+        help_text="Base única desde donde parte el camión al cotizar. Si está vacía se usa Saguapac.",
+    )
+
     precio_diesel = models.FloatField(
         "Precio Diesel (Bs)",
         default=3.76,
